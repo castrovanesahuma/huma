@@ -2,7 +2,7 @@
 //  CONFIGURACIÓN
 // ══════════════════════════════════════════════════════
 const SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; // Reemplazar con la URL del Web App de Apps Script
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; 
 const WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
 // ══════════════════════════════════════════════════════
 
@@ -45,7 +45,6 @@ function splitCSVLine(line) {
 }
 
 // ─── Imágenes ─────────────────────────────────────────
-// Separador: coma. Convierte \ → /, trim, antepone img/
 
 function parseImages(raw) {
   if (!raw) return [];
@@ -53,11 +52,11 @@ function parseImages(raw) {
     .split('|')
     .map(s => s.trim().replace(/\\/g, '/'))
     .filter(Boolean)
-    .map(f => 'img/' + f);
+    .map(f => f.startsWith('img/') ? f : 'img/' + f);
 }
 
 // ─── Estado de cards ──────────────────────────────────
-const cardState = {}; // { [productId]: { idx: number } }
+const cardState = {}; 
 
 // ─── Render catálogo ──────────────────────────────────
 
@@ -257,12 +256,13 @@ function addToCart(id, nombre, precio) {
   updateCartUI();
 }
 
-function removeFromCart(id) {
+// Se expone globalmente para los botones inline
+window.removeFromCart = function(id) {
   saveCart(getCart().filter(x => x.id !== id));
   updateCartUI();
 }
 
-function changeQty(id, delta) {
+window.changeQty = function(id, delta) {
   const cart = getCart();
   const item = cart.find(x => x.id === id);
   if (!item) return;
@@ -380,9 +380,11 @@ async function loadAdminProducts() {
         <td class="px-3 py-2 text-sm">$${parseFloat(p.precio || 0).toLocaleString('es-AR')}</td>
         <td class="px-3 py-2 text-sm text-gray-400 max-w-xs truncate">${p.descripcion || ''}</td>
         <td class="px-3 py-2 text-sm text-gray-400 max-w-xs truncate">${p.imagenes || ''}</td>
-        <td class="px-3 py-2">
+        <td class="px-3 py-2 flex gap-2">
           <button onclick="fillAdminForm(${JSON.stringify(p).replace(/"/g, '&quot;')})"
             class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition-colors">Editar</button>
+          <button onclick="deleteProduct('${p.id}')"
+            class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded transition-colors">Eliminar</button>
         </td>
       </tr>
     `).join('');
@@ -391,7 +393,7 @@ async function loadAdminProducts() {
   }
 }
 
-function fillAdminForm(p) {
+window.fillAdminForm = function(p) {
   ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
     const el = document.getElementById('field_' + field);
     if (el) el.value = p[field] || '';
@@ -401,7 +403,7 @@ function fillAdminForm(p) {
   document.getElementById('adminForm')?.scrollIntoView({ behavior: 'smooth' });
 }
 
-function clearAdminForm() {
+window.clearAdminForm = function() {
   ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
     const el = document.getElementById('field_' + field);
     if (el) el.value = '';
@@ -410,11 +412,31 @@ function clearAdminForm() {
   if (title) title.textContent = 'Nuevo producto';
 }
 
+window.deleteProduct = async function(id) {
+  if (!confirm('¿Seguro que deseas eliminar este producto?')) return;
+  const msg = document.getElementById('adminMsg');
+  if (msg) msg.textContent = 'Eliminando…';
+
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id: id }),
+    });
+    
+    if (msg) { msg.textContent = '✓ Comando de eliminación enviado. Actualiza en unos segundos.'; msg.className = 'text-green-600 text-sm'; }
+    setTimeout(loadAdminProducts, 2000);
+  } catch (err) {
+    if (msg) { msg.textContent = 'Error al eliminar: ' + err.message; msg.className = 'text-red-600 text-sm'; }
+  }
+}
+
 async function submitAdminForm(e) {
   e.preventDefault();
   const msg     = document.getElementById('adminMsg');
   const btn     = document.getElementById('submitBtn');
-  const payload = {};
+  const payload = { action: 'save' };
 
   ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
     payload[field] = (document.getElementById('field_' + field)?.value || '').trim();
@@ -429,20 +451,16 @@ async function submitAdminForm(e) {
   if (msg) msg.textContent = '';
 
   try {
-    const res  = await fetch(GOOGLE_SCRIPT_URL, {
+    await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
 
-    if (data.status === 'ok') {
-      if (msg) { msg.textContent = '✓ Producto guardado correctamente.'; msg.className = 'text-green-600 text-sm'; }
-      clearAdminForm();
-      loadAdminProducts();
-    } else {
-      throw new Error(data.message || 'Error desconocido');
-    }
+    if (msg) { msg.textContent = '✓ Datos enviados correctamente. Revisa tu Google Sheets.'; msg.className = 'text-green-600 text-sm'; }
+    clearAdminForm();
+    setTimeout(loadAdminProducts, 2000);
   } catch (err) {
     if (msg) { msg.textContent = 'Error al guardar: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   } finally {
