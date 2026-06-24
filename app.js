@@ -50,7 +50,7 @@ function splitCSVLine(line) {
 function parseImages(raw) {
   if (!raw) return [];
   return raw
-    .split(',')
+    .split('|')
     .map(s => s.trim().replace(/\\/g, '/'))
     .filter(Boolean)
     .map(f => 'img/' + f);
