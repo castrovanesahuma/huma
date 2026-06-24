@@ -2,7 +2,7 @@
 //  CONFIGURACIÓN
 // ══════════════════════════════════════════════════════
 const SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
-const GOOGLE_SCRIPT_URL = "DEJA_ESTE_PLACEHOLDER_PARA_EL_SCRIPT"; // Reemplazar con la URL del Web App de Apps Script
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; // Reemplazar con la URL del Web App de Apps Script
 const WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
 // ══════════════════════════════════════════════════════
 
