@@ -1,388 +1,582 @@
 // ══════════════════════════════════════════════════════
-//  CONFIGURACIÓN
+//  CONFIGURACIÓN — editá solo estos tres valores
 // ══════════════════════════════════════════════════════
 const SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; 
-const WHATSAPP_NUMBER   = "5491123456789"; 
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec";
+const WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
 // ══════════════════════════════════════════════════════
 
 const CART_KEY = 'huma_cart';
-const IS_ADMIN = typeof window !== 'undefined' && window.location.pathname.includes('admin');
+const IS_ADMIN = window.location.pathname.includes('admin');
 
-// ─── CSV Parser Senior & Anti-Basura ───────────────────
+/* ─────────────────────────────────────────────────────
+   CSV PARSER — limpia \r, descarta filas sin id/nombre
+───────────────────────────────────────────────────── */
 
 function parseCSV(text) {
   if (!text) return [];
-  // Elimina de raíz los retornos de carro (\r) que causan celdas y filas fantasmas
-  const lines = text.replace(/\r/g, "").split('\n');
+  // Elimina \r de raíz (Google Sheets exporta CRLF)
+  const lines = text.replace(/\r/g, '').split('\n');
   if (lines.length < 2) return [];
-  
+
   const headers = splitCSVLine(lines[0]);
   const rows = [];
-  
+
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line) continue; 
-    
-    const vals = splitCSVLine(lines[i]);
-    const obj = {};
-    headers.forEach((h, idx) => { obj[h.trim()] = vals[idx] ? vals[idx].trim() : ''; });
-    
-    // Validación de Integridad Estricta: Si no tiene ID o Nombre real, es basura del CSV
-    if (obj.id && obj.id !== "" && obj.nombre && obj.nombre !== "") {
-      rows.push(obj);
-    }
+    if (!line) continue; // fila completamente vacía
+
+    const vals = splitCSVLine(line);
+    const obj  = {};
+    headers.forEach((h, idx) => {
+      obj[h.trim()] = (vals[idx] ?? '').trim();
+    });
+
+    // Descarte estricto: sin id real y sin nombre → basura del CSV, ignorar
+    if (!obj.id || !obj.nombre) continue;
+
+    rows.push(obj);
   }
   return rows;
 }
 
 function splitCSVLine(line) {
   const res = [];
-  let cur = '';
-  let inQuotes = false;
+  let cur = '', inQ = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
     if (c === '"') {
-      inQuotes = !inQuotes;
-    } else if (c === ',' && !inQuotes) {
-      res.push(cur.trim().replace(/^"|"$/g, ''));
+      // comilla doble escapada dentro de campo entrecomillado
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (c === ',' && !inQ) {
+      res.push(cur.trim());
       cur = '';
     } else {
       cur += c;
     }
   }
-  res.push(cur.trim().replace(/^"|"$/g, ''));
+  res.push(cur.trim());
   return res;
 }
 
-// ─── Catálogo de Productos ─────────────────────────────
+/* ─────────────────────────────────────────────────────
+   COMUNICACIÓN CON APPS SCRIPT
+   ── Usa GET + query string para compatibilidad con
+      mode:'no-cors'. Apps Script lee e.parameter sin
+      importar el método HTTP cuando llegan como URL params.
+───────────────────────────────────────────────────── */
+
+async function sendToGoogleScript(payload) {
+  // Limpia valores undefined/null para no mandar parámetros vacíos erróneos
+  const clean = {};
+  Object.entries(payload).forEach(([k, v]) => {
+    clean[k] = v == null ? '' : String(v);
+  });
+
+  const qs  = new URLSearchParams(clean).toString();
+  const url = `${GOOGLE_SCRIPT_URL}?${qs}`;
+
+  // no-cors: no podemos leer la respuesta, pero el script SÍ se ejecuta
+  await fetch(url, { method: 'GET', mode: 'no-cors' });
+  return true;
+}
+
+/* ─────────────────────────────────────────────────────
+   IMÁGENES
+   · Separador: coma
+   · Convierte \ → /  y trim por nombre
+   · Antepone img/
+───────────────────────────────────────────────────── */
+
+function parseImages(raw) {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(s => s.trim().replace(/\\/g, '/'))
+    .filter(Boolean)
+    .map(f => 'img/' + f);
+}
+
+/* ─────────────────────────────────────────────────────
+   CATÁLOGO — render de cards
+───────────────────────────────────────────────────── */
+
+const cardState = {}; // { [id]: { idx } }
 
 function renderProducts(products) {
   const grid = document.getElementById('productGrid');
   if (!grid) return;
+  grid.innerHTML = '';
 
-  if (products.length === 0) {
-    grid.innerHTML = `<p class="col-span-full text-center text-charcoal/40 font-body text-sm py-12">No hay productos disponibles por el momento.</p>`;
+  const countEl = document.getElementById('productCount');
+  if (countEl) countEl.textContent = `${products.length} productos`;
+
+  if (!products.length) {
+    grid.innerHTML = '<p class="col-span-full text-center font-body text-sm text-charcoal/40 py-12">No hay productos disponibles.</p>';
     return;
   }
 
-  grid.innerHTML = products.map(p => {
-    const imgs = p.imagenes ? p.imagenes.split(',').map(i => i.trim()) : [];
-    const firstImg = imgs[0] || 'https://via.placeholder.com/600x800?text=HUMA';
-    
-    return `
-      <div class="product-card group cursor-pointer" data-id="${p.id}">
-        <div class="aspect-[3/4] w-full bg-mist overflow-hidden relative mb-4">
-          <img src="${firstImg}" alt="${p.nombre}" class="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700" loading="lazy" />
+  products.forEach(p => {
+    const images  = parseImages(p.imagenes);
+    const hasMany = images.length > 1;
+    cardState[p.id] = { idx: 0 };
+
+    const precio     = parseFloat(p.precio) || 0;
+    const imagesAttr = JSON.stringify(images).replace(/'/g, '&#39;');
+
+    const thumbsHTML = hasMany
+      ? `<div class="thumb-strip">
+          ${images.map((src, i) => `<img
+            src="${src}" alt="foto ${i + 1}"
+            class="${i === 0 ? 'active' : ''}"
+            data-product-id="${p.id}"
+            data-action="thumb"
+            data-index="${i}"
+          />`).join('')}
+        </div>`
+      : '';
+
+    const arrowsHTML = hasMany
+      ? `<button class="card-arrow left"  data-product-id="${p.id}" data-action="prev" aria-label="Anterior">&#8249;</button>
+         <button class="card-arrow right" data-product-id="${p.id}" data-action="next" aria-label="Siguiente">&#8250;</button>
+         <span class="card-counter" data-product-id="${p.id}" data-role="counter">1/${images.length}</span>`
+      : '';
+
+    const card = document.createElement('div');
+    card.className = 'product-card bg-white rounded-sm overflow-hidden flex flex-col';
+    card.innerHTML = `
+      <div class="card-img-wrap">
+        <img
+          src="${images[0] || ''}"
+          alt="${p.nombre}"
+          data-product-id="${p.id}"
+          data-role="main-image"
+          data-action="zoom"
+          data-images='${imagesAttr}'
+        />
+        ${arrowsHTML}
+      </div>
+      <div class="flex flex-col flex-1 p-3 gap-2">
+        ${thumbsHTML}
+        <div class="flex-1 mt-1">
+          <h3 class="font-display text-base font-light leading-tight">${p.nombre}</h3>
+          ${p.descripcion ? `<p class="font-body text-xs text-charcoal/50 mt-0.5 leading-relaxed">${p.descripcion}</p>` : ''}
         </div>
-        <div class="flex justify-between items-start gap-4">
-          <div class="space-y-1">
-            <h3 class="font-display text-lg font-light tracking-wide text-charcoal group-hover:text-bark transition-colors">${p.nombre}</h3>
-            <p class="font-body text-xs text-charcoal/40 line-clamp-1">${p.descripcion || ''}</p>
-          </div>
-          <p class="font-body text-sm font-medium text-charcoal shrink-0">$${parseFloat(p.precio || 0).toLocaleString('es-AR')}</p>
+        <div class="flex items-center justify-between mt-2">
+          <span class="font-display text-xl font-light">$${precio.toLocaleString('es-AR')}</span>
+          <button
+            class="bg-charcoal text-cream font-body text-[11px] tracking-widest uppercase px-3 py-2 hover:bg-bark transition-colors"
+            data-product-id="${p.id}"
+            data-action="add"
+            aria-label="Agregar al carrito">
+            + Agregar
+          </button>
         </div>
       </div>
     `;
-  }).join('');
+    grid.appendChild(card);
+  });
 }
+
+/* ─────────────────────────────────────────────────────
+   EVENTOS DEL GRID (delegación de eventos)
+───────────────────────────────────────────────────── */
 
 function initProductGridEvents(products) {
-  document.getElementById('productGrid')?.addEventListener('click', (e) => {
-    const card = e.target.closest('.product-card');
-    if (!card) return;
-    const pid = card.dataset.id;
-    const p = products.find(x => x.id === pid);
-    if (p) openModal(p);
-  });
-}
+  const grid = document.getElementById('productGrid');
+  if (!grid) return;
 
-// ─── Modal de Detalles ────────────────────────────────
+  grid.addEventListener('click', e => {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
 
-let currentModalProduct = null;
+    const action = target.dataset.action;
+    const pid    = target.dataset.productId;
+    const p      = products.find(x => String(x.id) === String(pid));
 
-function openModal(p) {
-  currentModalProduct = p;
-  const modal = document.getElementById('productModal');
-  if (!modal) return;
-
-  document.getElementById('modalNombre').textContent = p.nombre;
-  document.getElementById('modalPrecio').textContent = `$${parseFloat(p.precio || 0).toLocaleString('es-AR')}`;
-  document.getElementById('modalDescripcion').textContent = p.descripcion || '';
-
-  const imgs = p.imagenes ? p.imagenes.split(',').map(i => i.trim()) : [];
-  const gallery = document.getElementById('modalGallery');
-  
-  if (gallery) {
-    if (imgs.length === 0) {
-      gallery.innerHTML = `<img src="https://via.placeholder.com/600x800?text=HUMA" class="w-full h-full object-cover" />`;
-    } else {
-      gallery.innerHTML = imgs.map(img => `<div class="w-full h-full shrink-0"><img src="${img}" class="w-full h-full object-cover" /></div>`).join('');
+    if (action === 'prev' || action === 'next') {
+      if (!p) return;
+      const images = parseImages(p.imagenes);
+      const total  = images.length;
+      let idx = cardState[pid].idx;
+      idx = action === 'next' ? (idx + 1) % total : (idx - 1 + total) % total;
+      setCardImage(pid, images, idx);
     }
-    gallery.scrollLeft = 0;
-  }
 
-  modal.classList.remove('pointer-events-none', 'opacity-0');
-  document.body.classList.add('overflow-hidden');
-}
+    if (action === 'thumb') {
+      if (!p) return;
+      const images = parseImages(p.imagenes);
+      const idx    = parseInt(target.dataset.index, 10);
+      setCardImage(pid, images, idx);
+    }
 
-function closeModal() {
-  const modal = document.getElementById('productModal');
-  if (!modal) return;
-  modal.classList.add('pointer-events-none', 'opacity-0');
-  document.body.classList.remove('overflow-hidden');
-  currentModalProduct = null;
-}
+    if (action === 'zoom') {
+      let images = [];
+      try { images = JSON.parse(target.dataset.images); } catch { images = [target.src]; }
+      openImageModal(images, cardState[pid]?.idx || 0);
+    }
 
-// ─── Bolsa de Compras (Carrito) ─────────────────────────
-
-let cart = JSON.parse(localStorage.getItem(CART_KEY)) || [];
-
-function saveCart() {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  updateCartUI();
-}
-
-function addToCart(p) {
-  const item = cart.find(x => x.id === p.id);
-  if (item) {
-    item.qty += 1;
-  } else {
-    cart.push({ id: p.id, nombre: p.nombre, precio: parseFloat(p.precio || 0), imagenes: p.imagenes, qty: 1 });
-  }
-  saveCart();
-}
-
-window.updateQty = function(id, delta) {
-  const item = cart.find(x => x.id === id);
-  if (!item) return;
-  item.qty += delta;
-  if (item.qty <= 0) {
-    cart = cart.filter(x => x.id !== id);
-  }
-  saveCart();
-};
-
-function updateCartUI() {
-  const countEl = document.getElementById('cartCount');
-  const itemsEl = document.getElementById('cartItems');
-  const emptyEl = document.getElementById('cartEmpty');
-  const checkoutEl = document.getElementById('cartCheckout');
-  const totalEl = document.getElementById('cartTotal');
-
-  const totalItems = cart.reduce((acc, x) => acc + x.qty, 0);
-  if (countEl) countEl.textContent = totalItems;
-
-  if (cart.length === 0) {
-    emptyEl?.classList.remove('hidden');
-    checkoutEl?.classList.add('hidden');
-    if (itemsEl) itemsEl.innerHTML = '';
-    return;
-  }
-
-  emptyEl?.classList.add('hidden');
-  checkoutEl?.classList.remove('hidden');
-
-  if (itemsEl) {
-    itemsEl.innerHTML = cart.map(x => {
-      const imgs = x.imagenes ? x.imagenes.split(',').map(i => i.trim()) : [];
-      const firstImg = imgs[0] || 'https://via.placeholder.com/150?text=HUMA';
-      return `
-        <div class="flex gap-4 border-b border-mist/50 pb-4">
-          <img src="${firstImg}" class="w-16 h-20 object-cover bg-mist shrink-0" />
-          <div class="flex-1 min-w-0 flex flex-col justify-between">
-            <div>
-              <h4 class="font-display text-base font-light text-charcoal truncate">${x.nombre}</h4>
-              <p class="font-body text-xs text-charcoal/50 mt-0.5">$${x.precio.toLocaleString('es-AR')}</p>
-            </div>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center border border-mist rounded-sm">
-                <button onclick="window.updateQty('${x.id}', -1)" class="px-2 py-0.5 text-charcoal/40 hover:text-charcoal transition-colors text-sm">-</button>
-                <span class="px-2 text-xs font-body text-charcoal min-w-[20px] text-center">${x.qty}</span>
-                <button onclick="window.updateQty('${x.id}', 1)" class="px-2 py-0.5 text-charcoal/40 hover:text-charcoal transition-colors text-sm">+</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  const total = cart.reduce((acc, x) => acc + (x.precio * x.qty), 0);
-  if (totalEl) totalEl.textContent = `$${total.toLocaleString('es-AR')}`;
-}
-
-function openCart() {
-  document.getElementById('cartSidebar')?.classList.remove('translate-x-full');
-  document.getElementById('cartOverlay')?.classList.remove('pointer-events-none', 'opacity-0');
-}
-
-function closeCart() {
-  document.getElementById('cartSidebar')?.classList.add('translate-x-full');
-  document.getElementById('cartOverlay')?.classList.add('pointer-events-none', 'opacity-0');
-}
-
-function checkoutWhatsApp() {
-  if (cart.length === 0) return;
-  let text = `*HUMA - NUEVO PEDIDO*\n\n`;
-  cart.forEach(x => {
-    text += `• ${x.nombre} (x${x.qty}) — $${(x.precio * x.qty).toLocaleString('es-AR')}\n`;
-  });
-  const total = cart.reduce((acc, x) => acc + (x.precio * x.qty), 0);
-  text += `\n*TOTAL:* $${total.toLocaleString('es-AR')}`;
-  
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`, '_blank');
-}
-
-function initCartEvents() {
-  document.getElementById('openCartBtn')?.addEventListener('click', openCart);
-  document.getElementById('closeCartBtn')?.addEventListener('click', closeCart);
-  document.getElementById('cartOverlay')?.addEventListener('click', closeCart);
-  document.getElementById('whatsappCheckoutBtn')?.addEventListener('click', checkoutWhatsApp);
-}
-
-function initModalEvents() {
-  document.getElementById('closeModalBtn')?.addEventListener('click', closeModal);
-  document.getElementById('productModal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'productModal') closeModal();
-  });
-  document.getElementById('addToCartBtn')?.addEventListener('click', () => {
-    if (currentModalProduct) {
-      addToCart(currentModalProduct);
-      closeModal();
+    if (action === 'add') {
+      if (!p) return;
+      addToCart(pid, p.nombre, parseFloat(p.precio) || 0);
       openCart();
     }
   });
 }
 
-// ─── Panel de Administración ────────────────────────────
+function setCardImage(pid, images, idx) {
+  cardState[pid].idx = idx;
+  const grid    = document.getElementById('productGrid');
+  const mainImg = grid.querySelector(`img[data-product-id="${pid}"][data-role="main-image"]`);
+  const counter = grid.querySelector(`[data-product-id="${pid}"][data-role="counter"]`);
+  const thumbs  = grid.querySelectorAll(`img[data-product-id="${pid}"][data-action="thumb"]`);
 
-async function loadAdminProducts() {
+  if (mainImg) mainImg.src = images[idx];
+  if (counter) counter.textContent = `${idx + 1}/${images.length}`;
+  thumbs.forEach((t, i) => t.classList.toggle('active', i === idx));
+}
+
+/* ─────────────────────────────────────────────────────
+   MODAL DE ZOOM
+───────────────────────────────────────────────────── */
+
+let _modalImages = [];
+let _modalIdx    = 0;
+
+function openImageModal(images, startIdx = 0) {
+  _modalImages = images;
+  _modalIdx    = startIdx;
+
+  const hasMany = images.length > 1;
+  const prev    = document.getElementById('modalPrev');
+  const next    = document.getElementById('modalNext');
+  const counter = document.getElementById('modalCounter');
+
+  if (prev)    prev.style.display    = hasMany ? 'flex'  : 'none';
+  if (next)    next.style.display    = hasMany ? 'flex'  : 'none';
+  if (counter) counter.style.display = hasMany ? 'block' : 'none';
+
+  updateModalImage();
+  document.getElementById('imageModal')?.classList.add('open');
+  document.addEventListener('keydown', handleModalKeydown);
+}
+
+function closeImageModal() {
+  document.getElementById('imageModal')?.classList.remove('open');
+  document.removeEventListener('keydown', handleModalKeydown);
+}
+
+function modalNav(dir) {
+  const total = _modalImages.length;
+  _modalIdx   = dir === 'next'
+    ? (_modalIdx + 1) % total
+    : (_modalIdx - 1 + total) % total;
+  updateModalImage();
+}
+
+function updateModalImage() {
+  const img     = document.getElementById('modalImg');
+  const counter = document.getElementById('modalCounter');
+  if (img)     img.src = _modalImages[_modalIdx];
+  if (counter) counter.textContent = `${_modalIdx + 1} / ${_modalImages.length}`;
+}
+
+function handleModalKeydown(e) {
+  if (e.key === 'ArrowLeft')  modalNav('prev');
+  if (e.key === 'ArrowRight') modalNav('next');
+  if (e.key === 'Escape')     closeImageModal();
+}
+
+function initModalEvents() {
+  document.getElementById('modalClose')    ?.addEventListener('click', closeImageModal);
+  document.getElementById('modalBackdrop') ?.addEventListener('click', closeImageModal);
+  document.getElementById('modalPrev')     ?.addEventListener('click', () => modalNav('prev'));
+  document.getElementById('modalNext')     ?.addEventListener('click', () => modalNav('next'));
+}
+
+/* ─────────────────────────────────────────────────────
+   CARRITO (LocalStorage — independiente por cliente)
+───────────────────────────────────────────────────── */
+
+function getCart()    { try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; } }
+function saveCart(c)  { localStorage.setItem(CART_KEY, JSON.stringify(c)); }
+
+function addToCart(id, nombre, precio) {
+  const cart = getCart();
+  const item = cart.find(x => x.id === id);
+  if (item) item.qty++;
+  else cart.push({ id, nombre, precio, qty: 1 });
+  saveCart(cart);
+  updateCartUI();
+}
+
+function removeFromCart(id) {
+  saveCart(getCart().filter(x => x.id !== id));
+  updateCartUI();
+}
+
+function changeQty(id, delta) {
+  const cart = getCart();
+  const item = cart.find(x => x.id === id);
+  if (!item) return;
+  item.qty = Math.max(1, item.qty + delta);
+  saveCart(cart);
+  updateCartUI();
+}
+
+function getCartCount()       { return getCart().reduce((s, i) => s + i.qty, 0); }
+function getCartTotalAmount() { return getCart().reduce((s, i) => s + i.precio * i.qty, 0); }
+
+function renderCart() {
+  const cart    = getCart();
+  const items   = document.getElementById('cartItems');
+  const footer  = document.getElementById('cartFooter');
+  const empty   = document.getElementById('cartEmpty');
+  const totalEl = document.getElementById('cartTotal');
+
+  if (!cart.length) {
+    if (items) items.innerHTML = '';
+    footer?.classList.add('hidden');
+    empty?.classList.remove('hidden');
+    return;
+  }
+
+  empty?.classList.add('hidden');
+  footer?.classList.remove('hidden');
+
+  if (items) {
+    items.innerHTML = cart.map(item => `
+      <div class="flex gap-3 items-start py-3 border-b border-mist last:border-0">
+        <div class="flex-1 min-w-0">
+          <p class="font-body text-sm font-medium truncate">${item.nombre}</p>
+          <p class="font-display text-base font-light mt-0.5">$${(item.precio * item.qty).toLocaleString('es-AR')}</p>
+        </div>
+        <div class="flex items-center gap-2 mt-0.5 shrink-0">
+          <button onclick="changeQty('${item.id}', -1)"
+            class="w-6 h-6 flex items-center justify-center border border-mist hover:border-charcoal transition-colors text-lg leading-none">−</button>
+          <span class="font-body text-sm w-4 text-center">${item.qty}</span>
+          <button onclick="changeQty('${item.id}', 1)"
+            class="w-6 h-6 flex items-center justify-center border border-mist hover:border-charcoal transition-colors text-lg leading-none">+</button>
+          <button onclick="removeFromCart('${item.id}')"
+            class="ml-1 text-charcoal/30 hover:text-charcoal transition-colors text-base leading-none">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  if (totalEl) totalEl.textContent = '$' + getCartTotalAmount().toLocaleString('es-AR');
+}
+
+function updateCartUI() {
+  const count = getCartCount();
+  ['navCartCount', 'floatingCartCount'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = count;
+    el.classList.toggle('hidden', count === 0);
+  });
+  renderCart();
+}
+
+function openCart() {
+  const overlay = document.getElementById('cartOverlay');
+  document.getElementById('cartDrawer')?.classList.add('open');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+    requestAnimationFrame(() => overlay.classList.remove('opacity-0'));
+  }
+}
+
+function closeCart() {
+  const overlay = document.getElementById('cartOverlay');
+  document.getElementById('cartDrawer')?.classList.remove('open');
+  if (overlay) {
+    overlay.classList.add('opacity-0');
+    setTimeout(() => overlay.classList.add('hidden'), 300);
+  }
+}
+
+function initCartEvents() {
+  document.getElementById('navCartBtn')   ?.addEventListener('click', openCart);
+  document.getElementById('floatingCart') ?.addEventListener('click', openCart);
+  document.getElementById('closeCartBtn') ?.addEventListener('click', closeCart);
+  document.getElementById('cartOverlay')  ?.addEventListener('click', closeCart);
+  document.getElementById('whatsappBtn')  ?.addEventListener('click', sendWhatsAppOrder);
+}
+
+/* ─────────────────────────────────────────────────────
+   WHATSAPP
+───────────────────────────────────────────────────── */
+
+function sendWhatsAppOrder() {
+  const cart = getCart();
+  if (!cart.length) return;
+  const lines = cart.map(i => `- ${i.qty}x ${i.nombre} ($${(i.precio * i.qty).toLocaleString('es-AR')})`);
+  const msg   = [
+    'Hola, quiero hacer un pedido:',
+    ...lines,
+    '',
+    `Total: $${getCartTotalAmount().toLocaleString('es-AR')}`
+  ].join('\n');
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+/* ─────────────────────────────────────────────────────
+   ADMIN — tabla de productos
+───────────────────────────────────────────────────── */
+
+window.loadAdminProducts = async function () {
   const tbody = document.getElementById('adminTableBody');
   if (!tbody) return;
 
+  tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center">
+    <div class="flex items-center justify-center gap-2 text-charcoal/30">
+      <div class="w-4 h-4 border-2 border-bark/30 border-t-bark rounded-full animate-spin"></div>
+      <span class="font-body text-sm">Cargando…</span>
+    </div></td></tr>`;
+
   try {
-    const res = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
+    const res  = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = parseCSV(await res.text());
 
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">No hay productos cargados en la planilla.</td></tr>`;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">No hay productos en la planilla.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = rows.map(p => {
-      const isOculto = p.estado?.toLowerCase().trim() === 'oculto';
-      const badgeColor = isOculto ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-700 border border-green-200/50';
-      const badgeText = isOculto ? 'Oculto' : 'Visible';
-      
-      const toggleActionBtn = isOculto 
-        ? `<button onclick="window.toggleProductVisibility('${p.id}', 'mostrar')" class="text-xs bg-green-50 text-green-700 hover:bg-green-100 px-2 py-1 rounded transition-colors">👁️ Mostrar</button>`
-        : `<button onclick="window.toggleProductVisibility('${p.id}', 'ocultar')" class="text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 px-2 py-1 rounded transition-colors">👁️‍🗨️ Ocultar</button>`;
+      const isOculto  = p.estado?.toLowerCase().trim() === 'oculto';
+      const badge     = isOculto
+        ? `<span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Oculto</span>`
+        : `<span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200/50">Visible</span>`;
+
+      // Pasamos el objeto completo serializado — evita re-fetch al editar/ocultar
+      const pJson = JSON.stringify(p).replace(/"/g, '&quot;');
+
+      const toggleBtn = isOculto
+        ? `<button onclick="window.toggleVisibility(${pJson}, 'mostrar')"
+             class="text-xs bg-green-50 text-green-700 hover:bg-green-100 px-2 py-1 rounded transition-colors">
+             👁️ Mostrar</button>`
+        : `<button onclick="window.toggleVisibility(${pJson}, 'ocultar')"
+             class="text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 px-2 py-1 rounded transition-colors">
+             🙈 Ocultar</button>`;
 
       return `
         <tr class="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-          <td class="px-4 py-3 text-sm font-mono text-gray-500">${p.id}</td>
+          <td class="px-4 py-3 text-sm font-mono text-gray-400">${p.id}</td>
           <td class="px-4 py-3 text-sm font-medium">${p.nombre}</td>
-          <td class="px-4 py-3 text-sm font-medium">$${parseFloat(p.precio || 0).toLocaleString('es-AR')}</td>
-          <td class="px-4 py-3 text-sm">
-            <span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${badgeColor}">${badgeText}</span>
-          </td>
-          <td class="px-4 py-3 text-sm text-gray-400 max-w-[180px] truncate">${p.descripcion || '—'}</td>
+          <td class="px-4 py-3 text-sm">$${parseFloat(p.precio || 0).toLocaleString('es-AR')}</td>
+          <td class="px-4 py-3 text-sm">${badge}</td>
+          <td class="px-4 py-3 text-sm text-gray-400 max-w-[160px] truncate">${p.descripcion || '—'}</td>
           <td class="px-4 py-3 text-sm text-gray-400 max-w-[120px] truncate">${p.imagenes || '—'}</td>
           <td class="px-4 py-3 text-right">
             <div class="flex items-center justify-end gap-1.5">
-              ${toggleActionBtn}
-              <button onclick="window.fillAdminForm(${JSON.stringify(p).replace(/"/g, '&quot;')})" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Editar</button>
-              <button onclick="window.deleteProduct('${p.id}')" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">Eliminar</button>
+              ${toggleBtn}
+              <button onclick="window.fillAdminForm(${pJson})"
+                class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition-colors">Editar</button>
+              <button onclick="window.deleteProduct('${p.id}')"
+                class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded transition-colors">Eliminar</button>
             </div>
           </td>
         </tr>
       `;
     }).join('');
+
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-600">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-500 font-body text-sm">Error al cargar: ${err.message}</td></tr>`;
   }
-}
+};
 
-async function sendToGoogleScript(payload) {
-  const urlParams = new URLSearchParams(payload).toString();
-  try {
-    await fetch(`${GOOGLE_SCRIPT_URL}?${urlParams}`, { method: 'POST', mode: 'no-cors' });
-  } catch (e) {
-    console.error("Error en sincronización:", e);
-  }
-}
+/* ─────────────────────────────────────────────────────
+   ADMIN — toggle visibilidad
+   ── Recibe el objeto completo del producto para no
+      depender de un segundo fetch que puede traer caché.
+      Envía action=save con todos los campos + estado.
+───────────────────────────────────────────────────── */
 
-window.toggleProductVisibility = async function(id, accion) {
+window.toggleVisibility = async function (producto, accion) {
   const msg = document.getElementById('adminMsg');
   if (msg) { msg.textContent = 'Actualizando visibilidad…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
-  if (typeof window.bumpVersion === 'function') window.bumpVersion();
+
+  const payload = {
+    action:      'save',
+    id:          producto.id,
+    nombre:      producto.nombre,
+    precio:      producto.precio,
+    descripcion: producto.descripcion || '',
+    imagenes:    producto.imagenes    || '',
+    estado:      accion === 'ocultar' ? 'oculto' : ''
+  };
 
   try {
-    const res = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
-    const rows = parseCSV(await res.text());
-    const p = rows.find(x => x.id === id);
-    if (!p) return;
-
-    await sendToGoogleScript({
-      action: 'save',
-      id: p.id,
-      nombre: p.nombre,
-      precio: p.precio,
-      descripcion: p.descripcion || '',
-      imagenes: p.imagenes || '',
-      estado: accion === 'ocultar' ? 'oculto' : ''
-    });
-
-    if (msg) { msg.textContent = '✓ Visibilidad modificada.'; msg.className = 'text-green-600 text-sm font-medium'; }
-    setTimeout(loadAdminProducts, 2000);
+    await sendToGoogleScript(payload);
+    if (msg) { msg.textContent = '✓ Visibilidad actualizada.'; msg.className = 'text-green-600 text-sm font-medium'; }
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   }
 };
 
-window.deleteProduct = async function(id) {
-  if (!confirm('¿Eliminar producto permanentemente?')) return;
+/* ─────────────────────────────────────────────────────
+   ADMIN — eliminar producto
+───────────────────────────────────────────────────── */
+
+window.deleteProduct = async function (id) {
+  if (!confirm('¿Eliminar este producto permanentemente?')) return;
   const msg = document.getElementById('adminMsg');
   if (msg) { msg.textContent = 'Eliminando…'; msg.className = 'text-amber-600 text-sm'; }
-  if (typeof window.bumpVersion === 'function') window.bumpVersion();
 
   try {
-    await sendToGoogleScript({ action: 'delete', id: id });
-    if (msg) { msg.textContent = '✓ Producto eliminado.'; msg.className = 'text-green-600 text-sm'; }
-    setTimeout(loadAdminProducts, 2000);
+    await sendToGoogleScript({ action: 'delete', id });
+    if (msg) { msg.textContent = '✓ Producto eliminado.'; msg.className = 'text-green-600 text-sm font-medium'; }
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   }
 };
 
-window.fillAdminForm = function(p) {
-  ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
-    const el = document.getElementById('field_' + k); if (el) el.value = p[k] || '';
+/* ─────────────────────────────────────────────────────
+   ADMIN — formulario: llenar / limpiar / enviar
+───────────────────────────────────────────────────── */
+
+window.fillAdminForm = function (p) {
+  const fields = ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'];
+  fields.forEach(k => {
+    const el = document.getElementById('field_' + k);
+    if (el) el.value = p[k] || '';
   });
-  document.getElementById('formTitle').textContent = 'Editar producto';
-  document.getElementById('submitBtn').textContent = 'Actualizar producto';
-  
+
   const visibleId = document.getElementById('field_id_visible');
-  if (visibleId) visibleId.value = p.id;
+  if (visibleId) visibleId.value = p.id || '';
+
+  const title = document.getElementById('formTitle');
+  const btn   = document.getElementById('submitBtn');
+  if (title) title.textContent = 'Editar producto';
+  if (btn)   btn.textContent   = 'Actualizar producto';
+
+  document.getElementById('adminForm')?.scrollIntoView({ behavior: 'smooth' });
 };
 
-window.clearAdminForm = function() {
+window.clearAdminForm = function () {
   document.getElementById('adminForm')?.reset();
-  const newId = 'p' + Date.now();
-  const hiddenId = document.getElementById('field_id');
+
+  const newId     = 'p' + Date.now();
+  const hiddenId  = document.getElementById('field_id');
   const visibleId = document.getElementById('field_id_visible');
-  if (hiddenId) hiddenId.value = newId;
+  if (hiddenId)  hiddenId.value  = newId;
   if (visibleId) visibleId.value = newId;
-  
+
   const estadoEl = document.getElementById('field_estado');
   if (estadoEl) estadoEl.value = '';
-  
-  document.getElementById('formTitle').textContent = 'Nuevo producto';
-  document.getElementById('submitBtn').textContent = 'Guardar producto';
-  const msg = document.getElementById('adminMsg');
-  if (msg) msg.textContent = '';
+
+  const title = document.getElementById('formTitle');
+  const btn   = document.getElementById('submitBtn');
+  const msg   = document.getElementById('adminMsg');
+  if (title) title.textContent = 'Nuevo producto';
+  if (btn)   { btn.textContent = 'Guardar producto'; btn.disabled = false; }
+  if (msg)   msg.textContent   = '';
 };
 
 async function submitAdminForm(e) {
@@ -390,22 +584,28 @@ async function submitAdminForm(e) {
   const btn = document.getElementById('submitBtn');
   const msg = document.getElementById('adminMsg');
 
-  if (btn) btn.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   if (msg) { msg.textContent = 'Sincronizando con Google Sheets…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
-  if (typeof window.bumpVersion === 'function') window.bumpVersion();
 
   const payload = { action: 'save' };
   ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
-    const el = document.getElementById('field_' + k);
+    const el  = document.getElementById('field_' + k);
     const val = el ? el.value.trim() : '';
+    // Normaliza contrabarras en imágenes
     payload[k] = k === 'imagenes' ? val.replace(/\\/g, '/') : val;
   });
 
+  if (!payload.id || !payload.nombre || !payload.precio) {
+    if (msg) { msg.textContent = 'ID, nombre y precio son obligatorios.'; msg.className = 'text-red-600 text-sm'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar producto'; }
+    return;
+  }
+
   try {
     await sendToGoogleScript(payload);
-    if (msg) { msg.textContent = '✓ Guardado exitosamente.'; msg.className = 'text-green-600 text-sm font-medium'; }
+    if (msg) { msg.textContent = '✓ Cambios guardados correctamente.'; msg.className = 'text-green-600 text-sm font-medium'; }
     window.clearAdminForm();
-    setTimeout(loadAdminProducts, 2000);
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   } finally {
@@ -415,33 +615,50 @@ async function submitAdminForm(e) {
 
 function initAdminEvents() {
   document.getElementById('adminForm')    ?.addEventListener('submit', submitAdminForm);
-  document.getElementById('clearFormBtn') ?.addEventListener('click', window.clearAdminForm);
-  document.getElementById('refreshBtn')   ?.addEventListener('click', loadAdminProducts);
+  document.getElementById('clearFormBtn') ?.addEventListener('click',  window.clearAdminForm);
+  document.getElementById('refreshBtn')   ?.addEventListener('click',  window.loadAdminProducts);
+
+  // Botón generador de ID
+  document.getElementById('generateIdBtn')?.addEventListener('click', () => {
+    const newId     = 'p' + Date.now();
+    const hiddenId  = document.getElementById('field_id');
+    const visibleId = document.getElementById('field_id_visible');
+    if (hiddenId)  hiddenId.value  = newId;
+    if (visibleId) visibleId.value = newId;
+  });
+
+  // Sincroniza campo visible → hidden de ID al tipear
+  document.getElementById('field_id_visible')?.addEventListener('input', function () {
+    const hiddenId = document.getElementById('field_id');
+    if (hiddenId) hiddenId.value = this.value.trim();
+  });
 }
 
-// ─── Inicialización (Bootstrap) ─────────────────────────
+/* ─────────────────────────────────────────────────────
+   BOOTSTRAP
+───────────────────────────────────────────────────── */
 
 async function initCatalog() {
-  const loader = document.getElementById('loader');
-  const errEl  = document.getElementById('catalogError');
-
   initCartEvents();
   initModalEvents();
   updateCartUI();
+
+  const loader = document.getElementById('loader');
+  const errEl  = document.getElementById('catalogError');
 
   try {
     const res = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = parseCSV(await res.text());
+
     loader?.classList.add('hidden');
 
-    // Catálogo público: Solo renderiza lo que NO esté marcado como 'oculto'
-    const productosActivos = rows.filter(p => p.estado?.toLowerCase().trim() !== 'oculto');
-
-    initProductGridEvents(productosActivos);
-    renderProducts(productosActivos);
+    // Catálogo público: solo productos visibles
+    const activos = rows.filter(p => p.estado?.toLowerCase().trim() !== 'oculto');
+    initProductGridEvents(activos);
+    renderProducts(activos);
   } catch (err) {
-    console.error('Error cargando catálogo:', err);
+    console.error('[HUMA] Error cargando catálogo:', err);
     loader?.classList.add('hidden');
     errEl?.classList.remove('hidden');
   }
@@ -449,14 +666,10 @@ async function initCatalog() {
 
 async function initAdmin() {
   initAdminEvents();
-  if (typeof window.clearAdminForm === 'function') window.clearAdminForm();
-  await loadAdminProducts();
+  window.clearAdminForm();
+  await window.loadAdminProducts();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  if (IS_ADMIN) {
-    initAdmin();
-  } else {
-    initCatalog();
-  }
+  IS_ADMIN ? initAdmin() : initCatalog();
 });
