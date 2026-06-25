@@ -29,9 +29,17 @@
   </script>
   <style>
     body { background: #F7F3EE; font-family: 'DM Sans', system-ui, sans-serif; }
-    input, textarea { outline: none; }
-    input:focus, textarea:focus { box-shadow: 0 0 0 2px #C8A882; }
-    .field-label { @apply block text-xs font-medium tracking-widest uppercase text-charcoal/50 mb-1; }
+    input, textarea, select { outline: none; }
+    input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px #C8A882; }
+    .field-label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: rgba(42,42,42,.5);
+      margin-bottom: 0.25rem;
+    }
     .field-input {
       width: 100%;
       border: 1px solid #E8E2D9;
@@ -45,323 +53,209 @@
     }
     .field-input:focus { border-color: #C8A882; }
     #tableWrap { overflow-x: auto; }
-    table { border-collapse: collapse; width: 100%; min-width: 750px; }
-    th { background: #F7F3EE; }
+    table { border-collapse: collapse; width: 100%; min-width: 780px; }
+    th { background: #F7F3EE; position: sticky; top: 0; }
     tr:last-child td { border-bottom: none; }
   </style>
 </head>
-<body class="min-h-screen text-charcoal flex flex-col justify-between">
+<body class="min-h-screen text-charcoal flex flex-col">
 
-  <div>
-    <nav class="sticky top-0 z-30 border-b border-mist bg-cream/90 backdrop-blur">
-      <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <span class="font-display text-2xl font-light tracking-[.18em]">HUMA</span>
-          <span class="hidden sm:inline text-charcoal/30 text-sm">·</span>
-          <span class="hidden sm:inline font-body text-xs tracking-widest uppercase text-charcoal/40">Panel de administración</span>
-        </div>
-        <a href="index.html"
-          class="font-body text-xs tracking-widest uppercase text-charcoal/50 hover:text-bark transition-colors flex items-center gap-1.5">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-          Ver tienda
-        </a>
+  <!-- ── NAV ─────────────────────────────────────────── -->
+  <nav class="sticky top-0 z-30 border-b border-mist bg-cream/90 backdrop-blur">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="font-display text-2xl font-light tracking-[.18em]">HUMA</span>
+        <span class="hidden sm:inline text-charcoal/30">·</span>
+        <span class="hidden sm:inline font-body text-xs tracking-widest uppercase text-charcoal/40">Panel de administración</span>
       </div>
-    </nav>
+      <a href="index.html"
+        class="font-body text-xs tracking-widest uppercase text-charcoal/50 hover:text-bark transition-colors flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+        Ver tienda
+      </a>
+    </div>
+  </nav>
 
-    <main class="max-w-5xl mx-auto px-4 py-10 space-y-10">
+  <main class="flex-1 max-w-5xl mx-auto w-full px-4 py-10 space-y-10">
 
-      <section class="bg-white border border-mist rounded-sm p-6 md:p-8">
-        <div class="flex items-center justify-between mb-6">
-          <h1 id="formTitle" class="font-display text-2xl font-light tracking-wide">Nuevo producto</h1>
-          <button id="clearFormBtn"
-            class="font-body text-xs tracking-widest uppercase text-charcoal/40 hover:text-bark transition-colors">
-            Limpiar
-          </button>
+    <!-- ── FORMULARIO ──────────────────────────────────── -->
+    <section class="bg-white border border-mist rounded-sm p-6 md:p-8">
+      <div class="flex items-center justify-between mb-6">
+        <h1 id="formTitle" class="font-display text-2xl font-light tracking-wide">Nuevo producto</h1>
+        <button id="clearFormBtn"
+          class="font-body text-xs tracking-widest uppercase text-charcoal/40 hover:text-bark transition-colors">
+          Limpiar
+        </button>
+      </div>
+
+      <form id="adminForm" novalidate class="space-y-5">
+
+        <!-- Hidden fields -->
+        <input type="hidden" id="field_id" />
+        <input type="hidden" id="field_estado" value="" />
+
+        <!-- Nombre -->
+        <div>
+          <label for="field_nombre" class="field-label">Nombre <span class="text-bark">*</span></label>
+          <input id="field_nombre" type="text" class="field-input" placeholder="Ej: Vela aromática sándalo" required />
         </div>
 
-        <form id="adminForm" novalidate class="space-y-5">
-          <input type="hidden" id="field_id" />
-          <input type="hidden" id="field_estado" value="" />
-
+        <!-- Precio + ID -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label for="field_nombre" class="field-label">Nombre <span class="text-bark">*</span></label>
-            <input id="field_nombre" type="text" class="field-input" placeholder="Ej: Remera lino crudo" required />
+            <label for="field_precio" class="field-label">Precio <span class="text-bark">*</span></label>
+            <input id="field_precio" type="number" min="0" step="1" class="field-input" placeholder="Ej: 12500" required />
           </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <label for="field_precio" class="field-label">Precio <span class="text-bark">*</span></label>
-              <input id="field_precio" type="number" min="0" step="0.01" class="field-input" placeholder="Ej: 18500" required />
+          <div>
+            <label class="field-label">ID del producto</label>
+            <div class="flex gap-2">
+              <input id="field_id_visible" type="text" class="field-input flex-1"
+                placeholder="Autogenerado" />
+              <button type="button" id="generateIdBtn"
+                title="Generar nuevo ID"
+                class="shrink-0 border border-mist px-3 rounded-sm text-charcoal/40 hover:border-bark hover:text-bark transition-colors text-lg leading-none select-none">
+                ↻
+              </button>
             </div>
-            <div>
-              <label class="field-label">ID del producto</label>
-              <div class="flex gap-2">
-                <input id="field_id_visible" type="text" class="field-input flex-1"
-                  placeholder="Se genera automáticamente"
-                  oninput="document.getElementById('field_id').value = this.value.trim()" />
-                <button type="button" id="generateIdBtn"
-                  title="Generar ID automático"
-                  class="shrink-0 border border-mist px-3 rounded-sm text-charcoal/40 hover:border-bark hover:text-bark transition-colors text-lg leading-none">
-                  ↻
-                </button>
-              </div>
-            </div>
+            <p class="font-body text-[11px] text-charcoal/30 mt-1">Identificador único. Editable o autogenerado.</p>
           </div>
+        </div>
 
-          <div>
-            <label for="field_descripcion" class="field-label">Descripción</label>
-            <textarea id="field_descripcion" rows="3" class="field-input resize-none"
-              placeholder="Ej: Prenda de algodón 100%..."></textarea>
-          </div>
+        <!-- Descripción -->
+        <div>
+          <label for="field_descripcion" class="field-label">Descripción</label>
+          <textarea id="field_descripcion" rows="3" class="field-input resize-none"
+            placeholder="Ej: Vela de cera de soja con fragancia a sándalo y cedro. 200g."></textarea>
+        </div>
 
-          <div>
-            <label for="field_imagenes" class="field-label">Imágenes</label>
-            <input id="field_imagenes" type="text" class="field-input"
-              placeholder="Ej: remera1.jpg, remera2.jpg" />
-          </div>
+        <!-- Imágenes -->
+        <div>
+          <label for="field_imagenes" class="field-label">Imágenes</label>
+          <input id="field_imagenes" type="text" class="field-input"
+            placeholder="Ej: vela1.jpg, VELAS\vela2.jpg" />
+          <p class="font-body text-[11px] text-charcoal/30 mt-1.5 leading-relaxed">
+            Separadas por coma. Las contrabarras <code class="bg-mist px-1 rounded">\ </code>
+            se convierten a <code class="bg-mist px-1 rounded">/</code> automáticamente.
+            La ruta <code class="bg-mist px-1 rounded">img/</code> se antepone sola en la tienda.
+          </p>
+        </div>
 
-          <div class="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
-            <button id="submitBtn" type="submit"
-              class="bg-charcoal text-cream font-body text-xs tracking-widest uppercase px-6 py-3
-                     hover:bg-bark transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-              Guardar producto
-            </button>
-            <p id="adminMsg" class="font-body text-sm"></p>
-          </div>
-        </form>
-      </section>
+        <!-- Estado (selector explícito para edición) -->
+        <div>
+          <label for="field_estado_select" class="field-label">Estado de visibilidad</label>
+          <select id="field_estado_select" class="field-input"
+            onchange="document.getElementById('field_estado').value = this.value">
+            <option value="">Visible</option>
+            <option value="oculto">Oculto</option>
+          </select>
+          <p class="font-body text-[11px] text-charcoal/30 mt-1">
+            "Oculto" no aparece en la tienda pública pero permanece en la planilla.
+          </p>
+        </div>
 
-      <section class="bg-white border border-mist rounded-sm">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-mist">
-          <h2 class="font-display text-xl font-light tracking-wide">Productos en catálogo</h2>
-          <button id="refreshBtn"
-            class="flex items-center gap-1.5 font-body text-xs tracking-widest uppercase text-charcoal/40 hover:text-bark transition-colors">
-            Actualizar
+        <!-- Acciones -->
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+          <button id="submitBtn" type="submit"
+            class="bg-charcoal text-cream font-body text-xs tracking-widest uppercase px-6 py-3
+                   hover:bg-bark transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
+            Guardar producto
           </button>
+          <p id="adminMsg" class="font-body text-sm"></p>
         </div>
 
-        <div id="tableWrap">
-          <table>
-            <thead>
-              <tr class="text-left text-[11px] font-body font-medium tracking-widest uppercase text-charcoal/40">
-                <th class="px-4 py-3 border-b border-mist">ID</th>
-                <th class="px-4 py-3 border-b border-mist">Nombre</th>
-                <th class="px-4 py-3 border-b border-mist">Precio</th>
-                <th class="px-4 py-3 border-b border-mist">Estado</th>
-                <th class="px-4 py-3 border-b border-mist">Descripción</th>
-                <th class="px-4 py-3 border-b border-mist">Imágenes</th>
-                <th class="px-4 py-3 border-b border-mist text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="adminTableBody">
-              <tr>
-                <td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">
-                  Cargando productos…
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
-  </div>
+      </form>
+    </section>
 
-  <footer class="w-full text-center py-6 border-t border-mist/60 bg-cream text-xs font-body text-charcoal/40 tracking-wider">
-    © 2026 · Todos los derechos reservados - ver: <span id="versionCounter" class="font-medium text-bark">1.0.0</span>
-  </footer>
+    <!-- ── TABLA ───────────────────────────────────────── -->
+    <section class="bg-white border border-mist rounded-sm">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-mist">
+        <h2 class="font-display text-xl font-light tracking-wide">Productos en catálogo</h2>
+        <button id="refreshBtn"
+          class="flex items-center gap-1.5 font-body text-xs tracking-widest uppercase text-charcoal/40 hover:text-bark transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M4 4v5h.582M20 20v-5h-.581M4.582 9A8 8 0 0120 12M19.418 15A8 8 0 014 12"/>
+          </svg>
+          Actualizar
+        </button>
+      </div>
 
-  <script>
-    const LOCAL_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
-    const LOCAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec";
-
-    const fieldIdVisible = document.getElementById('field_id_visible');
-    const fieldIdHidden  = document.getElementById('field_id');
-    const versionCounter = document.getElementById('versionCounter');
-
-    function bumpVersion() {
-      let current = versionCounter.textContent.split('.');
-      current[2] = parseInt(current[2]) + 1;
-      versionCounter.textContent = current.join('.');
-    }
-
-    document.getElementById('generateIdBtn').addEventListener('click', () => {
-      const newId = 'p' + Date.now();
-      fieldIdHidden.value  = newId;
-      fieldIdVisible.value = newId;
-    });
-
-    function localParseCSV(text) {
-      const lines = text.split('\n');
-      if (lines.length < 2) return [];
-      
-      const splitLine = (line) => {
-        const res = []; let cur = ''; let q = false;
-        for (let i=0; i<line.length; i++) {
-          if (line[i] === '"') q = !q;
-          else if (line[i] === ',' && !q) { res.push(cur.trim().replace(/^"|"$/g, '')); cur = ''; }
-          else cur += line[i];
-        }
-        res.push(cur.trim().replace(/^"|"$/g, ''));
-        return res;
-      };
-
-      const headers = splitLine(lines[0]);
-      const rows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const vals = splitLine(lines[i]);
-        if (vals.length === 0) continue;
-        const obj = {};
-        headers.forEach((h, idx) => { obj[h.trim()] = vals[idx] ? vals[idx].trim() : ''; });
-        
-        // FILTRO CRUCIAL: Si la fila no tiene un ID real, se descarta por completo y no se muestra basura
-        if (obj.id && obj.id !== "" && obj.nombre && obj.nombre !== "") {
-          rows.push(obj);
-        }
-      }
-      return rows;
-    }
-
-    window.loadAdminProducts = async function() {
-      const tbody = document.getElementById('adminTableBody');
-      if (!tbody) return;
-
-      try {
-        const res  = await fetch(LOCAL_SHEET_URL + '&t=' + Date.now());
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const rows = localParseCSV(await res.text());
-
-        if(rows.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">No hay productos en la planilla.</td></tr>`;
-          return;
-        }
-
-        tbody.innerHTML = rows.map(p => {
-          const isOculto = p.estado?.toLowerCase().trim() === 'oculto';
-          const badgeColor = isOculto ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-700 border border-green-200/50';
-          const badgeText = isOculto ? 'Oculto' : 'Visible';
-          
-          const toggleActionBtn = isOculto 
-            ? `<button onclick="toggleProductVisibility(${JSON.stringify(p).replace(/"/g, '&quot;')}, 'mostrar')" class="text-xs bg-green-50 text-green-700 hover:bg-green-100 px-2 py-1 rounded transition-colors">👁️ Mostrar</button>`
-            : `<button onclick="toggleProductVisibility(${JSON.stringify(p).replace(/"/g, '&quot;')}, 'ocultar')" class="text-xs bg-amber-50 text-amber-700 hover:bg-amber-100 px-2 py-1 rounded transition-colors">👁️‍🗨️ Ocultar</button>`;
-
-          return `
-            <tr class="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-              <td class="px-4 py-3 text-sm font-mono text-gray-500">${p.id}</td>
-              <td class="px-4 py-3 text-sm font-medium">${p.nombre}</td>
-              <td class="px-4 py-3 text-sm font-medium">$${parseFloat(p.precio || 0).toLocaleString('es-AR')}</td>
-              <td class="px-4 py-3 text-sm">
-                <span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${badgeColor}">${badgeText}</span>
-              </td>
-              <td class="px-4 py-3 text-sm text-gray-400 max-w-[180px] truncate">${p.descripcion || '—'}</td>
-              <td class="px-4 py-3 text-sm text-gray-400 max-w-[120px] truncate">${p.imagenes || '—'}</td>
-              <td class="px-4 py-3 text-right">
-                <div class="flex items-center justify-end gap-1.5">
-                  ${toggleActionBtn}
-                  <button onclick="fillFormFromData(${JSON.stringify(p).replace(/"/g, '&quot;')})" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Editar</button>
-                  <button onclick="deleteProductDirect('${p.id}')" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">Eliminar</button>
-                </div>
+      <div id="tableWrap">
+        <table>
+          <thead>
+            <tr class="text-left text-[11px] font-body font-medium tracking-widest uppercase text-charcoal/40">
+              <th class="px-4 py-3 border-b border-mist">ID</th>
+              <th class="px-4 py-3 border-b border-mist">Nombre</th>
+              <th class="px-4 py-3 border-b border-mist">Precio</th>
+              <th class="px-4 py-3 border-b border-mist">Estado</th>
+              <th class="px-4 py-3 border-b border-mist">Descripción</th>
+              <th class="px-4 py-3 border-b border-mist">Imágenes</th>
+              <th class="px-4 py-3 border-b border-mist text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="adminTableBody">
+            <tr>
+              <td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">
+                Cargando productos…
               </td>
             </tr>
-          `;
-        }).join('');
-      } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-600">Error: ${err.message}</td></tr>`;
-      }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── NOTA APPS SCRIPT ────────────────────────────── -->
+    <section class="border border-mist rounded-sm p-6">
+      <details>
+        <summary class="font-body text-xs tracking-widest uppercase text-bark cursor-pointer hover:underline select-none">
+          ¿Cómo configurar el Apps Script de escritura?
+        </summary>
+        <ol class="mt-4 space-y-1.5 font-body text-sm text-charcoal/60 list-decimal list-inside leading-relaxed">
+          <li>En Google Sheets → <strong>Extensiones → Apps Script</strong>.</li>
+          <li>Creá una función <code class="bg-mist px-1 rounded text-xs">doGet(e)</code> que lea <code class="bg-mist px-1 rounded text-xs">e.parameter.action</code> y opere sobre la hoja.</li>
+          <li><strong>Implementar → Nueva implementación → Aplicación web.</strong> Ejecutar como: <em>yo</em>. Acceso: <em>Cualquier usuario</em>.</li>
+          <li>Copiá la URL y pegála en <code class="bg-mist px-1 rounded text-xs">GOOGLE_SCRIPT_URL</code> dentro de <code class="bg-mist px-1 rounded text-xs">app.js</code>.</li>
+          <li>El script recibe: <code class="bg-mist px-1 rounded text-xs">action</code> (<code>save</code> / <code>delete</code>), <code>id</code>, <code>nombre</code>, <code>precio</code>, <code>descripcion</code>, <code>imagenes</code>, <code>estado</code>.</li>
+        </ol>
+      </details>
+    </section>
+
+  </main>
+
+  <footer class="w-full text-center py-6 border-t border-mist bg-cream">
+    <p class="font-body text-xs text-charcoal/30 tracking-widest">HUMA · Panel interno</p>
+  </footer>
+
+  <!--
+    app.js maneja TODA la lógica:
+    · loadAdminProducts()    → tabla
+    · fillAdminForm(p)       → rellena form al editar
+    · clearAdminForm()       → limpia form / nuevo ID
+    · toggleVisibility(p,a)  → ocultar / mostrar
+    · deleteProduct(id)      → eliminar
+    · submitAdminForm(e)     → guardar / actualizar
+    NO hay lógica duplicada en este HTML.
+  -->
+  <script src="app.js"></script>
+
+  <script>
+    // Sincroniza el selector de estado visible con el hidden al cargar via fillAdminForm
+    // (se ejecuta DESPUÉS de que app.js ya definió window.fillAdminForm)
+    const _origFill = window.fillAdminForm;
+    window.fillAdminForm = function(p) {
+      _origFill(p);
+      const sel = document.getElementById('field_estado_select');
+      if (sel) sel.value = (p.estado || '').toLowerCase().trim() === 'oculto' ? 'oculto' : '';
     };
 
-    // ENVÍO INTEGRADO DIRECTO POR PARAMETROS URL SEGUROS (EVITA ERRORES DE PERMISOS CORS)
-    async function sendToGoogleScript(payload) {
-      const urlParams = new URLSearchParams(payload).toString();
-      try {
-        await fetch(`${LOCAL_SCRIPT_URL}?${urlParams}`, {
-          method: 'POST',
-          mode: 'no-cors'
-        });
-        return true;
-      } catch (e) {
-        console.error(e);
-        return false;
-      }
-    }
-
-    window.toggleProductVisibility = async function(producto, accion) {
-      const msg = document.getElementById('adminMsg');
-      if (msg) { msg.textContent = 'Actualizando visibilidad…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
-      bumpVersion();
-
-      const payload = {
-        action: 'save',
-        id: producto.id,
-        nombre: producto.nombre,
-        precio: producto.precio,
-        descripcion: producto.descripcion || '',
-        imagenes: producto.imagenes || '',
-        estado: accion === 'ocultar' ? 'oculto' : ''
-      };
-
-      await sendToGoogleScript(payload);
-      if (msg) { msg.textContent = '✓ Solicitud de visibilidad procesada.'; msg.className = 'text-green-600 text-sm font-medium'; }
-      setTimeout(loadAdminProducts, 2000);
+    const _origClear = window.clearAdminForm;
+    window.clearAdminForm = function() {
+      _origClear();
+      const sel = document.getElementById('field_estado_select');
+      if (sel) sel.value = '';
     };
-
-    window.fillFormFromData = function(p) {
-      ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
-        const el = document.getElementById('field_' + k); if (el) el.value = p[k] || '';
-      });
-      document.getElementById('formTitle').textContent = 'Editar producto';
-      document.getElementById('submitBtn').textContent = 'Actualizar producto';
-      fieldIdVisible.value = fieldIdHidden.value;
-    };
-
-    window.clearFormLocal = function() {
-      document.getElementById('adminForm').reset();
-      const newId = 'p' + Date.now();
-      fieldIdHidden.value  = newId;
-      fieldIdVisible.value = newId;
-      document.getElementById('field_estado').value = '';
-      document.getElementById('formTitle').textContent = 'Nuevo producto';
-      document.getElementById('submitBtn').textContent = 'Guardar producto';
-      document.getElementById('adminMsg').textContent = '';
-    };
-
-    document.getElementById('adminForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const msg = document.getElementById('adminMsg');
-      if (msg) { msg.textContent = 'Guardando en Google Sheets…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
-      bumpVersion();
-
-      const payload = { action: 'save' };
-      ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
-        const val = document.getElementById('field_' + k).value.trim();
-        payload[k] = k === 'imagenes' ? val.replace(/\\/g, '/') : val;
-      });
-
-      await sendToGoogleScript(payload);
-      if (msg) { msg.textContent = '✓ Cambios enviados correctamente.'; msg.className = 'text-green-600 text-sm font-medium'; }
-      window.clearFormLocal();
-      setTimeout(loadAdminProducts, 2000);
-    });
-
-    window.deleteProductDirect = async function(id) {
-      if (!confirm('¿Eliminar permanentemente de la lista?')) return;
-      const msg = document.getElementById('adminMsg');
-      if (msg) { msg.textContent = 'Eliminando…'; msg.className = 'text-amber-600 text-sm'; }
-      bumpVersion();
-
-      await sendToGoogleScript({ action: 'delete', id: id });
-      if (msg) { msg.textContent = '✓ Registro eliminado con éxito.'; msg.className = 'text-green-600 text-sm'; }
-      setTimeout(loadAdminProducts, 2000);
-    };
-
-    document.getElementById('clearFormBtn').addEventListener('click', window.clearFormLocal);
-    document.getElementById('refreshBtn').addEventListener('click', loadAdminProducts);
-
-    document.addEventListener('DOMContentLoaded', () => {
-      window.clearFormLocal();
-      setTimeout(loadAdminProducts, 300);
-    });
   </script>
 </body>
 </html>
