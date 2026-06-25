@@ -484,19 +484,22 @@ async function initCatalog() {
   initModalEvents();
   updateCartUI();
 
-  try {
+ try {
     const res = await fetch(SHEET_CSV_URL);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = parseCSV(await res.text());
     loader?.classList.add('hidden');
-    initProductGridEvents(rows);
-    renderProducts(rows);
+
+    // Filtra y deja afuera los productos que digan "oculto" en la columna estado
+    const productosActivos = rows.filter(p => p.estado?.toLowerCase().trim() !== 'oculto');
+
+    initProductGridEvents(productosActivos);
+    renderProducts(productosActivos);
   } catch (err) {
     console.error('Error cargando catálogo:', err);
     loader?.classList.add('hidden');
     errEl?.classList.remove('hidden');
   }
-}
 
 async function initAdmin() {
   initAdminEvents();
