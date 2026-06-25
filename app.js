@@ -1,9 +1,9 @@
 // ══════════════════════════════════════════════════════
 //  CONFIGURACIÓN
 // ══════════════════════════════════════════════════════
-const SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; 
-const WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
+window.SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
+window.GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec"; 
+window.WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
 // ══════════════════════════════════════════════════════
 
 const CART_KEY = 'huma_cart';
@@ -11,7 +11,7 @@ const IS_ADMIN = typeof window !== 'undefined' && window.location.pathname.inclu
 
 // ─── CSV Parser ───────────────────────────────────────
 
-function parseCSV(text) {
+window.parseCSV = function(text) {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
   const headers = splitCSVLine(lines[0]);
