@@ -394,7 +394,7 @@ async function loadAdminProducts() {
 }
 
 window.fillAdminForm = function(p) {
-  ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
+  ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(field => {
     const el = document.getElementById('field_' + field);
     if (el) el.value = p[field] || '';
   });
@@ -404,7 +404,7 @@ window.fillAdminForm = function(p) {
 }
 
 window.clearAdminForm = function() {
-  ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
+  ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(field => {
     const el = document.getElementById('field_' + field);
     if (el) el.value = '';
   });
@@ -438,7 +438,7 @@ async function submitAdminForm(e) {
   const btn     = document.getElementById('submitBtn');
   const payload = { action: 'save' };
 
-  ['id', 'nombre', 'precio', 'descripcion', 'imagenes'].forEach(field => {
+  ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(field => {
     payload[field] = (document.getElementById('field_' + field)?.value || '').trim();
   });
 
