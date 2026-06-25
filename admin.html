@@ -166,9 +166,7 @@
     </section>
   </main>
 
-  <script src="app.js"></script>
   <script>
-    // URL LOCAL INTERNA PARA EVITAR CONFLICTOS DE ENTRADA
     const LOCAL_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
     const LOCAL_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec";
 
@@ -181,7 +179,6 @@
       fieldIdVisible.value = newId;
     });
 
-    // PARSER LOCAL AUTOMÁTICO
     function localParseCSV(text) {
       const lines = text.trim().split('\n');
       if (lines.length < 2) return [];
@@ -214,7 +211,7 @@
       if (!tbody) return;
 
       try {
-        const res  = await fetch(LOCAL_SHEET_URL);
+        const res  = await fetch(LOCAL_SHEET_URL + '&t=' + Date.now());
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const rows = localParseCSV(await res.text());
 
@@ -240,8 +237,8 @@
               <td class="px-4 py-3 text-right">
                 <div class="flex items-center justify-end gap-1.5">
                   ${toggleActionBtn}
-                  <button onclick="fillAdminForm(${JSON.stringify(p).replace(/"/g, '&quot;')})" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Editar</button>
-                  <button onclick="deleteProduct('${p.id}')" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">Eliminar</button>
+                  <button onclick="fillFormFromData(${JSON.stringify(p).replace(/"/g, '&quot;')})" class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded">Editar</button>
+                  <button onclick="deleteProductDirect('${p.id}')" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">Eliminar</button>
                 </div>
               </td>
             </tr>
@@ -256,7 +253,12 @@
       const msg = document.getElementById('adminMsg');
       if (msg) { msg.textContent = 'Actualizando visibilidad…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
       
-      const payload = {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = LOCAL_SCRIPT_URL;
+      form.target = 'hidden_iframe';
+
+      const fields = {
         action: 'save',
         id: producto.id,
         nombre: producto.nombre,
@@ -266,43 +268,116 @@
         estado: accion === 'ocultar' ? 'oculto' : ''
       };
 
-      try {
-        await fetch(LOCAL_SCRIPT_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (msg) { msg.textContent = '✓ Cambios aplicados con éxito.'; msg.className = 'text-green-600 text-sm font-medium'; }
-        setTimeout(loadAdminProducts, 1500);
-      } catch (err) {
-        if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
+      for (const key in fields) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = fields[key];
+        form.appendChild(input);
       }
+
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+
+      if (msg) { msg.textContent = '✓ Cambios enviados. Actualizando lista…'; msg.className = 'text-green-600 text-sm font-medium'; }
+      setTimeout(loadAdminProducts, 2500);
     };
 
-    // Sobrecarga de sincronización nativa de IDs
-    const _origFillAdminForm = window.fillAdminForm;
-    window.fillAdminForm = function(p) {
-      if (typeof _origFillAdminForm === 'function') _origFillAdminForm(p);
-      else {
-        ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
-          const el = document.getElementById('field_' + k); if (el) el.value = p[k] || '';
-        });
-        document.getElementById('formTitle').textContent = 'Editar producto';
-        document.getElementById('submitBtn').textContent = 'Actualizar producto';
-      }
+    window.fillFormFromData = function(p) {
+      ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
+        const el = document.getElementById('field_' + k); if (el) el.value = p[k] || '';
+      });
+      document.getElementById('formTitle').textContent = 'Editar producto';
+      document.getElementById('submitBtn').textContent = 'Actualizar producto';
       fieldIdVisible.value = fieldIdHidden.value;
     };
 
+    window.clearFormLocal = function() {
+      document.getElementById('adminForm').reset();
+      const newId = 'p' + Date.now();
+      fieldIdHidden.value  = newId;
+      fieldIdVisible.value = newId;
+      document.getElementById('field_estado').value = '';
+      document.getElementById('formTitle').textContent = 'Nuevo producto';
+      document.getElementById('submitBtn').textContent = 'Guardar producto';
+      document.getElementById('adminMsg').textContent = '';
+    };
+
+    document.getElementById('adminForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const msg = document.getElementById('adminMsg');
+      if (msg) { msg.textContent = 'Enviando producto…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = LOCAL_SCRIPT_URL;
+      form.target = 'hidden_iframe';
+
+      ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
+        const val = document.getElementById('field_' + k).value.trim();
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = k;
+        input.value = k === 'imagenes' ? val.replace(/\\/g, '/') : val;
+        form.appendChild(input);
+      });
+
+      const actionInput = document.createElement('input');
+      actionInput.type = 'hidden';
+      actionInput.name = 'action';
+      actionInput.value = 'save';
+      form.appendChild(actionInput);
+
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+
+      if (msg) { msg.textContent = '✓ Sincronizado. Actualizando lista…'; msg.className = 'text-green-600 text-sm'; }
+      window.clearFormLocal();
+      setTimeout(loadAdminProducts, 2500);
+    });
+
+    window.deleteProductDirect = function(id) {
+      if (!confirm('¿Eliminar permanentemente?')) return;
+      const msg = document.getElementById('adminMsg');
+      if (msg) { msg.textContent = 'Eliminando…'; msg.className = 'text-amber-600 text-sm'; }
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = LOCAL_SCRIPT_URL;
+      form.target = 'hidden_iframe';
+
+      const fields = { action: 'delete', id: id };
+      for (const key in fields) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = fields[key];
+        form.appendChild(input);
+      }
+
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+
+      setTimeout(loadAdminProducts, 2500);
+    };
+
+    document.getElementById('clearFormBtn').addEventListener('click', window.clearFormLocal);
     document.getElementById('refreshBtn').addEventListener('click', loadAdminProducts);
 
     document.addEventListener('DOMContentLoaded', () => {
-      if (!fieldIdHidden.value) {
-        const newId = 'p' + Date.now();
-        fieldIdHidden.value  = newId;
-        fieldIdVisible.value = newId;
+      // Crear iframe oculto para procesar respuestas de Google sin redirigir la pestaña
+      if(!document.getElementById('hidden_iframe')){
+        const iframe = document.createElement('iframe');
+        iframe.id = 'hidden_iframe';
+        iframe.name = 'hidden_iframe';
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
       }
-      setTimeout(loadAdminProducts, 500);
+      window.clearFormLocal();
+      setTimeout(loadAdminProducts, 300);
     });
   </script>
 </body>
