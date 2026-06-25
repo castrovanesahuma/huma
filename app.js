@@ -508,7 +508,7 @@ window.toggleVisibility = async function (producto, accion) {
     action:      'save',
     id:          producto.id,
     nombre:      producto.nombre,
-    precio:      producto.precio,
+    precio:      producto.precio,      // valor crudo del CSV, no formateado
     descripcion: producto.descripcion || '',
     imagenes:    producto.imagenes    || '',
     estado:      accion === 'ocultar' ? 'oculto' : ''
