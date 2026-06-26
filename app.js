@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 const SUPABASE_URL    = 'https://hjuswmrqjdvmgmqbxipk.supabase.co';
 const SUPABASE_KEY    = 'sb_publishable_JODxvBscCTZPrnDJSPVPkA_mB9DG0aQ';
-const WHATSAPP_NUMBER = '5491123456789'; // Reemplazá con el número real
+const WHATSAPP_NUMBER = '5492494621488'; // Reemplazá con el número real
 // ══════════════════════════════════════════════════════
 
 const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
