@@ -1,16 +1,90 @@
 // ══════════════════════════════════════════════════════
-//  CONFIGURACIÓN — editá solo estos valores
+//  CONFIGURACIÓN — editá solo estos tres valores
 // ══════════════════════════════════════════════════════
-const SUPABASE_URL  = 'https://hjuswmrqjdvmgmqbxipk.supabase.co';
-const SUPABASE_KEY  = 'sb_publishable_JODxvBscCTZPrnDJSPVPkA_mB9DG0aQ'; // publishable key
-const WHATSAPP_NUMBER = '5491123456789'; // Reemplazá con el número real
+const SHEET_CSV_URL     = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT26n3U0sniaztj-nS4Qm8iro_fAvED2sQ5BLB7jlVE-NY0byZNmCJfBaiOQEm7qIFKxTkBNeohLwGI/pub?output=csv";
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxccGfv-jhftv2il90Uisbe_idJTZy-AOvBIwha45YYsbRl_5GcNOMD6UwUAQChOVfzfw/exec";
+const WHATSAPP_NUMBER   = "5491123456789"; // Reemplazar con el número real
 // ══════════════════════════════════════════════════════
-
-// Cliente Supabase via CDN (se carga desde index.html / admin.html)
-const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const CART_KEY = 'huma_cart';
 const IS_ADMIN = window.location.pathname.includes('admin');
+
+/* ─────────────────────────────────────────────────────
+   CSV PARSER — limpia \r, descarta filas sin id/nombre
+───────────────────────────────────────────────────── */
+
+function parseCSV(text) {
+  if (!text) return [];
+  // Elimina \r de raíz (Google Sheets exporta CRLF)
+  const lines = text.replace(/\r/g, '').split('\n');
+  if (lines.length < 2) return [];
+
+  const headers = splitCSVLine(lines[0]);
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue; // fila completamente vacía
+
+    const vals = splitCSVLine(line);
+    const obj  = {};
+    headers.forEach((h, idx) => {
+      obj[h.trim()] = (vals[idx] ?? '').trim();
+    });
+
+    // Descarte estricto: sin id real y sin nombre → basura del CSV, ignorar
+    if (!obj.id || !obj.nombre) continue;
+
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function splitCSVLine(line) {
+  const res = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      // comilla doble escapada dentro de campo entrecomillado
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (c === ',' && !inQ) {
+      res.push(cur.trim());
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  res.push(cur.trim());
+  return res;
+}
+
+/* ─────────────────────────────────────────────────────
+   COMUNICACIÓN CON APPS SCRIPT
+   ── Usa GET + query string para compatibilidad con
+      mode:'no-cors'. Apps Script lee e.parameter sin
+      importar el método HTTP cuando llegan como URL params.
+───────────────────────────────────────────────────── */
+
+async function sendToGoogleScript(payload) {
+  // Limpia valores undefined/null
+  const clean = {};
+  Object.entries(payload).forEach(([k, v]) => {
+    clean[k] = v == null ? '' : String(v);
+  });
+
+  // POST con Content-Type text/plain → evita preflight CORS.
+  // Apps Script lo recibe en doPost(e) via e.postData.contents.
+  // Con mode:'no-cors' no podemos leer la respuesta, pero el script SÍ ejecuta.
+  await fetch(GOOGLE_SCRIPT_URL, {
+    method:  'POST',
+    mode:    'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body:    JSON.stringify(clean),
+  });
+  return true;
+}
 
 /* ─────────────────────────────────────────────────────
    IMÁGENES
@@ -25,14 +99,14 @@ function parseImages(raw) {
     .split(',')
     .map(s => s.trim().replace(/\\/g, '/'))
     .filter(Boolean)
-    .map(f => 'img/' + f);
+    .map(f => f.startsWith('http') ? f : 'img/' + f);
 }
 
 /* ─────────────────────────────────────────────────────
    CATÁLOGO — render de cards
 ───────────────────────────────────────────────────── */
 
-const cardState = {};
+const cardState = {}; // { [id]: { idx } }
 
 function renderProducts(products) {
   const grid = document.getElementById('productGrid');
@@ -226,7 +300,7 @@ function initModalEvents() {
 }
 
 /* ─────────────────────────────────────────────────────
-   CARRITO (LocalStorage)
+   CARRITO (LocalStorage — independiente por cliente)
 ───────────────────────────────────────────────────── */
 
 function getCart()    { try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; } }
@@ -367,24 +441,22 @@ window.loadAdminProducts = async function () {
     </div></td></tr>`;
 
   try {
-    const { data: rows, error } = await _sb
-      .from('productos')
-      .select('*')
-      .order('id', { ascending: true });
-
-    if (error) throw error;
+    const res  = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = parseCSV(await res.text());
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">No hay productos.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center font-body text-sm text-charcoal/30">No hay productos en la planilla.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = rows.map(p => {
-      const isOculto = p.estado?.toLowerCase().trim() === 'oculto';
-      const badge    = isOculto
+      const isOculto  = p.estado?.toLowerCase().trim() === 'oculto';
+      const badge     = isOculto
         ? `<span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Oculto</span>`
         : `<span class="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200/50">Visible</span>`;
 
+      // Pasamos el objeto completo serializado — evita re-fetch al editar/ocultar
       const pJson = JSON.stringify(p).replace(/"/g, '&quot;');
 
       const toggleBtn = isOculto
@@ -408,7 +480,7 @@ window.loadAdminProducts = async function () {
               ${toggleBtn}
               <button onclick="window.fillAdminForm(${pJson})"
                 class="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded transition-colors">Editar</button>
-              <button onclick="window.deleteProduct(${p.id})"
+              <button onclick="window.deleteProduct('${p.id}')"
                 class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded transition-colors">Eliminar</button>
             </div>
           </td>
@@ -417,29 +489,35 @@ window.loadAdminProducts = async function () {
     }).join('');
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-500 font-body text-sm">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-500 font-body text-sm">Error al cargar: ${err.message}</td></tr>`;
   }
 };
 
 /* ─────────────────────────────────────────────────────
    ADMIN — toggle visibilidad
+   ── Recibe el objeto completo del producto para no
+      depender de un segundo fetch que puede traer caché.
+      Envía action=save con todos los campos + estado.
 ───────────────────────────────────────────────────── */
 
 window.toggleVisibility = async function (producto, accion) {
   const msg = document.getElementById('adminMsg');
-  if (msg) { msg.textContent = 'Actualizando…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
+  if (msg) { msg.textContent = 'Actualizando visibilidad…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
 
-  const nuevoEstado = accion === 'ocultar' ? 'oculto' : '';
+  const payload = {
+    action:      'save',
+    id:          producto.id,
+    nombre:      producto.nombre,
+    precio:      producto.precio,      // valor crudo del CSV, no formateado
+    descripcion: producto.descripcion || '',
+    imagenes:    producto.imagenes    || '',
+    estado:      accion === 'ocultar' ? 'oculto' : ''
+  };
 
   try {
-    const { error } = await _sb
-      .from('productos')
-      .update({ estado: nuevoEstado })
-      .eq('id', producto.id);
-
-    if (error) throw error;
+    await sendToGoogleScript(payload);
     if (msg) { msg.textContent = '✓ Visibilidad actualizada.'; msg.className = 'text-green-600 text-sm font-medium'; }
-    await window.loadAdminProducts();
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   }
@@ -455,14 +533,9 @@ window.deleteProduct = async function (id) {
   if (msg) { msg.textContent = 'Eliminando…'; msg.className = 'text-amber-600 text-sm'; }
 
   try {
-    const { error } = await _sb
-      .from('productos')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
+    await sendToGoogleScript({ action: 'delete', id });
     if (msg) { msg.textContent = '✓ Producto eliminado.'; msg.className = 'text-green-600 text-sm font-medium'; }
-    await window.loadAdminProducts();
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   }
@@ -473,17 +546,14 @@ window.deleteProduct = async function (id) {
 ───────────────────────────────────────────────────── */
 
 window.fillAdminForm = function (p) {
-  const fields = ['nombre', 'precio', 'descripcion', 'imagenes', 'estado'];
+  const fields = ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'];
   fields.forEach(k => {
     const el = document.getElementById('field_' + k);
     if (el) el.value = p[k] || '';
   });
 
-  // id es autoincremental: guardamos el valor real en el hidden y lo mostramos
-  const hiddenId  = document.getElementById('field_id');
   const visibleId = document.getElementById('field_id_visible');
-  if (hiddenId)  hiddenId.value  = p.id;
-  if (visibleId) visibleId.value = p.id;
+  if (visibleId) visibleId.value = p.id || '';
 
   const title = document.getElementById('formTitle');
   const btn   = document.getElementById('submitBtn');
@@ -496,11 +566,11 @@ window.fillAdminForm = function (p) {
 window.clearAdminForm = function () {
   document.getElementById('adminForm')?.reset();
 
-  // En Supabase el id lo asigna la BD: limpiamos ambos campos
+  const newId     = 'p' + Date.now();
   const hiddenId  = document.getElementById('field_id');
   const visibleId = document.getElementById('field_id_visible');
-  if (hiddenId)  hiddenId.value  = '';
-  if (visibleId) visibleId.value = 'Autogenerado';
+  if (hiddenId)  hiddenId.value  = newId;
+  if (visibleId) visibleId.value = newId;
 
   const estadoEl = document.getElementById('field_estado');
   if (estadoEl) estadoEl.value = '';
@@ -519,40 +589,27 @@ async function submitAdminForm(e) {
   const msg = document.getElementById('adminMsg');
 
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
-  if (msg) { msg.textContent = 'Guardando en Supabase…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
+  if (msg) { msg.textContent = 'Sincronizando con Google Sheets…'; msg.className = 'text-charcoal/60 text-sm animate-pulse'; }
 
-  const hiddenId = document.getElementById('field_id');
-  const editId   = hiddenId?.value ? parseInt(hiddenId.value, 10) : null;
-
-  const payload = {};
-  ['nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
+  const payload = { action: 'save' };
+  ['id', 'nombre', 'precio', 'descripcion', 'imagenes', 'estado'].forEach(k => {
     const el  = document.getElementById('field_' + k);
     const val = el ? el.value.trim() : '';
+    // Normaliza contrabarras en imágenes
     payload[k] = k === 'imagenes' ? val.replace(/\\/g, '/') : val;
   });
-  payload.precio = parseFloat(payload.precio) || 0;
 
-  if (!payload.nombre || !payload.precio) {
-    if (msg) { msg.textContent = 'Nombre y precio son obligatorios.'; msg.className = 'text-red-600 text-sm'; }
+  if (!payload.id || !payload.nombre || !payload.precio) {
+    if (msg) { msg.textContent = 'ID, nombre y precio son obligatorios.'; msg.className = 'text-red-600 text-sm'; }
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar producto'; }
     return;
   }
 
   try {
-    let error;
-
-    if (editId) {
-      // UPDATE
-      ({ error } = await _sb.from('productos').update(payload).eq('id', editId));
-    } else {
-      // INSERT — Supabase asigna el id automáticamente
-      ({ error } = await _sb.from('productos').insert(payload));
-    }
-
-    if (error) throw error;
-    if (msg) { msg.textContent = '✓ Guardado correctamente.'; msg.className = 'text-green-600 text-sm font-medium'; }
+    await sendToGoogleScript(payload);
+    if (msg) { msg.textContent = '✓ Cambios guardados correctamente.'; msg.className = 'text-green-600 text-sm font-medium'; }
     window.clearAdminForm();
-    await window.loadAdminProducts();
+    setTimeout(window.loadAdminProducts, 2200);
   } catch (err) {
     if (msg) { msg.textContent = 'Error: ' + err.message; msg.className = 'text-red-600 text-sm'; }
   } finally {
@@ -565,12 +622,20 @@ function initAdminEvents() {
   document.getElementById('clearFormBtn') ?.addEventListener('click',  window.clearAdminForm);
   document.getElementById('refreshBtn')   ?.addEventListener('click',  window.loadAdminProducts);
 
-  // El botón "Generar ID" ya no tiene función (lo maneja Supabase), lo ocultamos
-  const genBtn = document.getElementById('generateIdBtn');
-  if (genBtn) genBtn.style.display = 'none';
+  // Botón generador de ID
+  document.getElementById('generateIdBtn')?.addEventListener('click', () => {
+    const newId     = 'p' + Date.now();
+    const hiddenId  = document.getElementById('field_id');
+    const visibleId = document.getElementById('field_id_visible');
+    if (hiddenId)  hiddenId.value  = newId;
+    if (visibleId) visibleId.value = newId;
+  });
 
-  // Campo visible de ID: solo lectura en modo edición, vacío en nuevo
-  document.getElementById('field_id_visible')?.setAttribute('readonly', true);
+  // Sincroniza campo visible → hidden de ID al tipear
+  document.getElementById('field_id_visible')?.addEventListener('input', function () {
+    const hiddenId = document.getElementById('field_id');
+    if (hiddenId) hiddenId.value = this.value.trim();
+  });
 }
 
 /* ─────────────────────────────────────────────────────
@@ -586,17 +651,16 @@ async function initCatalog() {
   const errEl  = document.getElementById('catalogError');
 
   try {
-    const { data: rows, error } = await _sb
-      .from('productos')
-      .select('*')
-      .neq('estado', 'oculto')
-      .order('id', { ascending: true });
-
-    if (error) throw error;
+    const res = await fetch(SHEET_CSV_URL + '&t=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = parseCSV(await res.text());
 
     loader?.classList.add('hidden');
-    initProductGridEvents(rows);
-    renderProducts(rows);
+
+    // Catálogo público: solo productos visibles
+    const activos = rows.filter(p => p.estado?.toLowerCase().trim() !== 'oculto');
+    initProductGridEvents(activos);
+    renderProducts(activos);
   } catch (err) {
     console.error('[HUMA] Error cargando catálogo:', err);
     loader?.classList.add('hidden');
